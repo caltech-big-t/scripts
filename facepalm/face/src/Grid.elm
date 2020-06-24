@@ -1,0 +1,201 @@
+module Grid exposing (Params, toSvg)
+
+import Debug exposing (log)
+import Html exposing (Html)
+import Html.Attributes exposing (src, style)
+import Peeps exposing (Peep)
+import Svg exposing (Svg, image, text, text_)
+import Svg.Attributes exposing (fill, height, viewBox, width, x, y)
+
+
+type alias Pair =
+    { x : Float, y : Float }
+
+
+type alias Params =
+    { pagesize : Pair
+    , margins : Pair
+    , elemsize : Pair
+    , rows : Int
+    , cols : Int
+    , gutters : Pair
+    }
+
+
+type Elem
+    = Pic Box String
+    | Text Box Side String
+
+
+type alias Box =
+    { position : Pair
+    , size : Pair
+    }
+
+
+type Side
+    = Left
+    | Right
+
+
+flip side =
+    case side of
+        Left ->
+            Right
+
+        Right ->
+            Left
+
+
+picsWidth p =
+    toFloat p.cols * p.elemsize.x + toFloat (p.cols - 1) * p.gutters.x
+
+
+placePic : Params -> Side -> Int -> Int -> Box
+placePic p side row col =
+    let
+        x =
+            toFloat col * (p.elemsize.x + p.gutters.x)
+
+        x_base =
+            case side of
+                Left ->
+                    -p.margins.x - picsWidth p
+
+                Right ->
+                    p.margins.x
+
+        y =
+            p.margins.y + toFloat row * (p.elemsize.y + p.gutters.y)
+    in
+    { position = { x = x_base + x, y = y }
+    , size = p.elemsize
+    }
+
+
+placeLabel : Params -> Side -> Int -> Box
+placeLabel p side row =
+    let
+        x =
+            case side of
+                Left ->
+                    -p.pagesize.x
+
+                Right ->
+                    p.margins.x + picsWidth p
+
+        y =
+            p.margins.y + toFloat row * (p.elemsize.y + p.gutters.y)
+    in
+    { position = { x = x, y = y }
+    , size = { x = p.pagesize.x - p.margins.x - picsWidth p, y = p.elemsize.y }
+    }
+
+
+layoutRow : Params -> Side -> Int -> List Peep -> ( List Elem, List Peep )
+layoutRow p side row peeps_ =
+    let
+        peeps =
+            List.take p.cols peeps_
+
+        labelBox =
+            placeLabel p side row
+
+        labelText =
+            peeps |> List.map Peeps.displayName |> String.join "\n"
+
+        labelAlign =
+            flip side
+
+        pics =
+            peeps
+                |> List.indexedMap
+                    (\col peep ->
+                        Pic (placePic p side row col)
+                            (Peeps.displayPic peep)
+                    )
+    in
+    ( [ Text labelBox labelAlign labelText ] ++ pics
+    , List.drop p.cols peeps_
+    )
+
+
+layoutPage : Params -> Side -> Int -> List Peep -> ( List Elem, List Peep )
+layoutPage p side start peeps_ =
+    let
+        iter row peeps page =
+            if row == p.rows || peeps == [] then
+                ( page, peeps )
+
+            else
+                let
+                    ( rowElems, remaining ) =
+                        layoutRow p side row peeps
+                in
+                iter (row + 1) remaining (page ++ rowElems)
+    in
+    iter start peeps_ []
+
+
+layout : Params -> List Peep -> List (List Elem)
+layout p peeps_ =
+    let
+        iter side peeps pages =
+            if peeps == [] then
+                pages
+
+            else
+                let
+                    ( pageElems, remaining ) =
+                        layoutPage p side 0 peeps
+                in
+                iter (flip side) remaining (pages ++ [ pageElems ])
+
+        ( titlePage, peeps__ ) =
+            layoutPage p Left 2 peeps_
+    in
+    iter Right peeps__ [ titlePage ]
+
+
+toSvg : Params -> List Peep -> List (Html msg)
+toSvg p peeps =
+    let
+        elemToSvg elem =
+            case elem of
+                Pic box pic ->
+                    Svg.rect
+                        [ x <| String.fromFloat <| 16 * box.position.x
+                        , y <| String.fromFloat <| 16 * box.position.y
+                        , width <| String.fromFloat <| 16 * box.size.x
+                        , height <| String.fromFloat <| 16 * box.size.y
+                        , fill "red"
+                        ]
+                        []
+
+                Text box align txt ->
+                    Svg.text_
+                        [ x <| String.fromFloat <| 16 * box.position.x
+                        , y <| String.fromFloat <| 16 * box.position.y
+                        , width <| String.fromFloat <| 16 * box.size.x
+                        , height <| String.fromFloat <| 16 * box.size.y
+                        ]
+                        [ text txt ]
+
+        pageToSvg page =
+            Svg.svg
+                [ viewBox
+                    ([ -p.pagesize.x, 0, 2 * p.pagesize.x, p.pagesize.y ]
+                        |> List.map ((*) 16)
+                        |> List.map String.fromFloat
+                        |> String.join " "
+                    )
+                , width <| String.fromFloat <| 2 * 16 * p.pagesize.x
+                , height <| String.fromFloat <| 16 * p.pagesize.y
+                , style "border" "1px solid black"
+                ]
+                (List.map elemToSvg page)
+
+        pages =
+            layout p peeps
+    in
+    List.map pageToSvg pages

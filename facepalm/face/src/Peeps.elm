@@ -1,4 +1,4 @@
-module Peeps exposing (Error, Peep, fromBalfour)
+module Peeps exposing (Error, Peep, displayName, displayPic, fromBalfour)
 
 import Csv
 import Parser exposing (DeadEnd)
@@ -21,6 +21,31 @@ type Error
 listIdx : Int -> List a -> Maybe a
 listIdx i lst =
     List.head <| List.drop i lst
+
+
+cmp : Peep -> Peep -> Order
+cmp a b =
+    case compare a.grade b.grade of
+        EQ ->
+            case compare a.lastname b.lastname of
+                EQ ->
+                    compare a.firstname b.firstname
+
+                order ->
+                    order
+
+        order ->
+            order
+
+
+displayName : Peep -> String
+displayName peep =
+    String.join ", " [ peep.lastname, peep.firstname ]
+
+
+displayPic : Peep -> String
+displayPic =
+    .pic
 
 
 fromRecord : List String -> Result String Peep

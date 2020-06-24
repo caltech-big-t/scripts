@@ -5,6 +5,7 @@ import Element exposing (Element, text)
 import Element.Input as Input
 import File exposing (File)
 import File.Select as Select
+import Grid
 import Html exposing (Html)
 import Peeps exposing (Peep)
 import Task
@@ -106,4 +107,25 @@ viewPeeps peeps =
             , view = \peep -> text peep.grade
             }
     in
-    Element.table [] { data = peeps, columns = [ pics, lastnames, firstnames, grades ] }
+    Element.column []
+        [ Element.table [] { data = peeps, columns = [ pics, lastnames, firstnames, grades ] }
+        , viewLayouts peeps
+        ]
+
+
+viewLayouts : List Peep -> Element Msg
+viewLayouts peeps =
+    let
+        params =
+            { pagesize = { x = 54, y = 72 }
+            , margins = { x = 4, y = 4 }
+            , elemsize = { x = 5, y = 8 }
+            , rows = 8
+            , cols = 6
+            , gutters = { x = 0.5, y = 1 }
+            }
+
+        pages =
+            Grid.toSvg params peeps
+    in
+    Element.column [] (List.map Element.html pages)
