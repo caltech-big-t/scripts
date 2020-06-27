@@ -1,11 +1,12 @@
-module Grid exposing (Params, toSvg)
+module Grid exposing (Params, toJson, toSvg)
 
 import Debug exposing (log)
 import Html exposing (Html)
-import Html.Attributes exposing (src, style)
+import Html.Attributes exposing (style)
+import Json.Encode as Encode
 import Peeps exposing (Peep)
 import Svg exposing (Svg, image, text, text_)
-import Svg.Attributes exposing (fill, height, viewBox, width, x, y)
+import Svg.Attributes exposing (dominantBaseline, fill, height, preserveAspectRatio, textAnchor, viewBox, width, x, xlinkHref, y)
 
 
 type alias Pair =
@@ -47,8 +48,17 @@ flip side =
             Left
 
 
+sideToString side =
+    case side of
+        Left ->
+            "left"
+
+        Right ->
+            "right"
+
+
 picsWidth p =
-    toFloat p.cols * p.elemsize.x + toFloat (p.cols - 1) * p.gutters.x
+    toFloat p.cols * (p.elemsize.x + p.gutters.x)
 
 
 placePic : Params -> Side -> Int -> Int -> Box
@@ -60,7 +70,7 @@ placePic p side row col =
         x_base =
             case side of
                 Left ->
-                    -p.margins.x - picsWidth p
+                    -p.margins.x - picsWidth p + p.gutters.x
 
                 Right ->
                     p.margins.x
@@ -160,25 +170,38 @@ layout p peeps_ =
 toSvg : Params -> List Peep -> List (Html msg)
 toSvg p peeps =
     let
+        textProps box align =
+            case align of
+                Left ->
+                    [ x <| String.fromFloat <| 16 * box.position.x
+                    , y <| String.fromFloat <| 16 * box.position.y
+                    ]
+
+                Right ->
+                    [ x <| String.fromFloat <| 16 * (box.position.x + box.size.x)
+                    , y <| String.fromFloat <| 16 * box.position.y
+                    , textAnchor "end"
+                    ]
+
         elemToSvg elem =
             case elem of
                 Pic box pic ->
-                    Svg.rect
+                    Svg.image
                         [ x <| String.fromFloat <| 16 * box.position.x
                         , y <| String.fromFloat <| 16 * box.position.y
                         , width <| String.fromFloat <| 16 * box.size.x
                         , height <| String.fromFloat <| 16 * box.size.y
-                        , fill "red"
+                        , xlinkHref pic
+                        , preserveAspectRatio "xMidYMid slice"
                         ]
                         []
 
                 Text box align txt ->
                     Svg.text_
-                        [ x <| String.fromFloat <| 16 * box.position.x
-                        , y <| String.fromFloat <| 16 * box.position.y
-                        , width <| String.fromFloat <| 16 * box.size.x
-                        , height <| String.fromFloat <| 16 * box.size.y
-                        ]
+                        (textProps box align
+                            ++ [ dominantBaseline "Hanging"
+                               ]
+                        )
                         [ text txt ]
 
         pageToSvg page =
@@ -199,3 +222,32 @@ toSvg p peeps =
             layout p peeps
     in
     List.map pageToSvg pages
+
+
+toJson : Params -> List Peep -> String
+toJson p peeps =
+    let
+        boxProps box =
+            [ ( "pos", Encode.list Encode.float [ box.position.x, box.position.y ] )
+            , ( "size", Encode.list Encode.float [ box.size.x, box.size.y ] )
+            ]
+
+        elemToJson elem =
+            case elem of
+                Pic box pic ->
+                    Encode.object
+                        (boxProps box ++ [ ( "pic", Encode.string pic ) ])
+
+                Text box align txt ->
+                    Encode.object
+                        (boxProps box ++ [ ( "txt", Encode.string txt ), ( "align", Encode.string <| sideToString align ) ])
+
+        pageToJson page =
+            Encode.list
+                elemToJson
+                page
+
+        pages =
+            layout p peeps
+    in
+    Encode.encode 0 <| Encode.list pageToJson pages

@@ -1,11 +1,12 @@
 module Main exposing (main)
 
 import Browser exposing (Document)
-import Element exposing (Element, text)
+import Element exposing (Element, height, px, text)
 import Element.Input as Input
 import File exposing (File)
+import File.Download as Download
 import File.Select as Select
-import Grid
+import Grid exposing (Params)
 import Html exposing (Html)
 import Peeps exposing (Peep)
 import Task
@@ -21,18 +22,33 @@ main =
 
 
 type alias Model =
-    { peeps : Maybe (Result (List Peeps.Error) (List Peep)) }
+    { peeps : Maybe (Result (List Peeps.Error) (List Peep))
+    , params : Grid.Params
+    }
 
 
 type Msg
     = Select
     | Selected File
     | Loaded String
+    | Download String String String
 
 
 init : () -> ( Model, Cmd Msg )
 init =
-    always ( { peeps = Nothing }, Cmd.none )
+    always
+        ( { peeps = Nothing
+          , params =
+                { pagesize = { x = 54, y = 72 }
+                , margins = { x = 4, y = 4 }
+                , elemsize = { x = 5, y = 7 }
+                , rows = 8
+                , cols = 6
+                , gutters = { x = 0.5, y = 1 }
+                }
+          }
+        , Cmd.none
+        )
 
 
 subscriptions : Model -> Sub Msg
@@ -52,6 +68,9 @@ update msg model =
         Loaded contents ->
             ( { model | peeps = Just <| Peeps.fromBalfour contents }, Cmd.none )
 
+        Download name mime string ->
+            ( model, Download.string name mime string )
+
 
 view : Model -> Document Msg
 view model =
@@ -65,7 +84,8 @@ view model =
                     text "errors importing"
 
                 Just (Ok peeps) ->
-                    viewPeeps peeps
+                    viewPeeps model.params <|
+                        List.filter (\peep -> peep.grade == "Junior") peeps
 
         body =
             [ text "Facepalm"
@@ -78,15 +98,22 @@ view model =
     }
 
 
-viewPeeps : List Peep -> Element Msg
-viewPeeps peeps =
+viewPeeps : Params -> List Peep -> Element Msg
+viewPeeps params peeps =
     let
         pics =
             { header = text "Pic"
             , width = Element.shrink
-            , view = \peep -> text peep.pic
+            , view =
+                \peep ->
+                    Element.image [ height <| px 64 ]
+                        { src = peep.pic, description = "" }
+            }
 
-            --, view = \peep -> Element.image [] { src = peep.pic, description = "" }
+        files =
+            { header = text "File"
+            , width = Element.fill
+            , view = \peep -> text peep.pic
             }
 
         lastnames =
@@ -106,25 +133,23 @@ viewPeeps peeps =
             , width = Element.fill
             , view = \peep -> text peep.grade
             }
+
+        sorted =
+            List.sortWith Peeps.cmp peeps
     in
     Element.column []
         [ Element.table [] { data = peeps, columns = [ pics, lastnames, firstnames, grades ] }
-        , viewLayouts peeps
+        , viewLayouts params sorted
+        , Input.button []
+            { onPress = Just <| Download "layout.json" "text/json" <| Grid.toJson params sorted
+            , label = text "Export"
+            }
         ]
 
 
-viewLayouts : List Peep -> Element Msg
-viewLayouts peeps =
+viewLayouts : Params -> List Peep -> Element Msg
+viewLayouts params peeps =
     let
-        params =
-            { pagesize = { x = 54, y = 72 }
-            , margins = { x = 4, y = 4 }
-            , elemsize = { x = 5, y = 8 }
-            , rows = 8
-            , cols = 6
-            , gutters = { x = 0.5, y = 1 }
-            }
-
         pages =
             Grid.toSvg params peeps
     in
