@@ -236,18 +236,28 @@ toJson p peeps =
             case elem of
                 Pic box pic ->
                     Encode.object
-                        (boxProps box ++ [ ( "pic", Encode.string pic ) ])
+                        ([ ( "type", Encode.string "pic" )
+                         , ( "pic", Encode.string pic )
+                         ]
+                            ++ boxProps box
+                        )
 
                 Text box align txt ->
                     Encode.object
-                        (boxProps box ++ [ ( "txt", Encode.string txt ), ( "align", Encode.string <| sideToString align ) ])
+                        ([ ( "type", Encode.string "text" )
+                         , ( "txt", Encode.string txt )
+                         , ( "align", Encode.string <| sideToString align )
+                         ]
+                            ++ boxProps box
+                        )
 
         pageToJson page =
-            Encode.list
-                elemToJson
-                page
+            Encode.object
+                [ ( "elems", Encode.list elemToJson page ) ]
 
         pages =
             layout p peeps
     in
-    Encode.encode 0 <| Encode.list pageToJson pages
+    Encode.encode 0 <|
+        Encode.object
+            [ ( "pages", Encode.list pageToJson pages ) ]

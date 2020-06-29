@@ -85,7 +85,8 @@ view model =
 
                 Just (Ok peeps) ->
                     viewPeeps model.params <|
-                        List.filter (\peep -> peep.grade == "Junior") peeps
+                        List.sortWith Peeps.cmp <|
+                            List.filter (\peep -> peep.grade == "Junior") peeps
 
         body =
             [ text "Facepalm"
@@ -133,15 +134,12 @@ viewPeeps params peeps =
             , width = Element.fill
             , view = \peep -> text peep.grade
             }
-
-        sorted =
-            List.sortWith Peeps.cmp peeps
     in
     Element.column []
         [ Element.table [] { data = peeps, columns = [ pics, lastnames, firstnames, grades ] }
-        , viewLayouts params sorted
+        , viewLayouts params peeps
         , Input.button []
-            { onPress = Just <| Download "layout.json" "text/json" <| Grid.toJson params sorted
+            { onPress = Just <| Download "layout.json" "text/json" <| Grid.toJson params peeps
             , label = text "Export"
             }
         ]
