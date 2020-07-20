@@ -24,6 +24,7 @@ main =
 type alias Model =
     { peeps : Maybe (Result (List Peeps.Error) (List Peep))
     , params : Grid.Params
+    , filter : String
     }
 
 
@@ -32,6 +33,7 @@ type Msg
     | Selected File
     | Loaded String
     | Download String String String
+    | Filter String
 
 
 init : () -> ( Model, Cmd Msg )
@@ -46,6 +48,7 @@ init =
                 , cols = 6
                 , gutters = { x = 0.5, y = 1 }
                 }
+          , filter = "Freshman"
           }
         , Cmd.none
         )
@@ -71,28 +74,46 @@ update msg model =
         Download name mime string ->
             ( model, Download.string name mime string )
 
+        Filter by ->
+            ( { model | filter = by }, Cmd.none )
+
 
 view : Model -> Document Msg
 view model =
     let
+        filterSelect =
+            Input.radio []
+                { onChange = Filter
+                , selected = Just model.filter
+                , label = Input.labelAbove [] (text "Filter")
+                , options =
+                    [ Input.option "Freshman" (text "Freshman")
+                    , Input.option "Sophomore" (text "Sophomore")
+                    , Input.option "Junior" (text "Junior")
+                    , Input.option "Senior" (text "Senior")
+                    ]
+                }
+
         peepsView =
             case model.peeps of
                 Nothing ->
-                    text "Import file to get started"
+                    [ text "Import file to get started" ]
 
                 Just (Err errs) ->
-                    text "errors importing"
+                    [ text "errors importing" ]
 
                 Just (Ok peeps) ->
-                    viewPeeps model.params <|
+                    [ filterSelect
+                    , viewPeeps model.params <|
                         List.sortWith Peeps.cmp <|
-                            List.filter (\peep -> peep.grade == "Junior") peeps
+                            List.filter (\peep -> peep.grade == model.filter) peeps
+                    ]
 
         body =
             [ text "Facepalm"
             , Input.button [] { onPress = Just Select, label = text "Import" }
-            , peepsView
             ]
+                ++ peepsView
     in
     { title = "FacePalm"
     , body = [ Element.layout [] <| Element.column [] body ]

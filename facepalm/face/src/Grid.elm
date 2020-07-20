@@ -9,10 +9,6 @@ import Svg exposing (Svg, image, text, text_)
 import Svg.Attributes exposing (dominantBaseline, fill, height, preserveAspectRatio, textAnchor, viewBox, width, x, xlinkHref, y)
 
 
-type alias Pair =
-    { x : Float, y : Float }
-
-
 type alias Params =
     { pagesize : Pair
     , margins : Pair
@@ -20,6 +16,12 @@ type alias Params =
     , rows : Int
     , cols : Int
     , gutters : Pair
+    }
+
+
+type alias Page =
+    { side : Side
+    , elems : List Elem
     }
 
 
@@ -32,6 +34,10 @@ type alias Box =
     { position : Pair
     , size : Pair
     }
+
+
+type alias Pair =
+    { x : Float, y : Float }
 
 
 type Side
@@ -130,24 +136,24 @@ layoutRow p side row peeps_ =
     )
 
 
-layoutPage : Params -> Side -> Int -> List Peep -> ( List Elem, List Peep )
+layoutPage : Params -> Side -> Int -> List Peep -> ( Page, List Peep )
 layoutPage p side start peeps_ =
     let
-        iter row peeps page =
+        iter row peeps elems =
             if row == p.rows || peeps == [] then
-                ( page, peeps )
+                ( { side = side, elems = elems }, peeps )
 
             else
                 let
                     ( rowElems, remaining ) =
                         layoutRow p side row peeps
                 in
-                iter (row + 1) remaining (page ++ rowElems)
+                iter (row + 1) remaining (elems ++ rowElems)
     in
     iter start peeps_ []
 
 
-layout : Params -> List Peep -> List (List Elem)
+layout : Params -> List Peep -> List Page
 layout p peeps_ =
     let
         iter side peeps pages =
@@ -205,18 +211,27 @@ toSvg p peeps =
                         [ text txt ]
 
         pageToSvg page =
+            let
+                viewLeft =
+                    case page.side of
+                        Left ->
+                            -p.pagesize.x
+
+                        Right ->
+                            0
+            in
             Svg.svg
                 [ viewBox
-                    ([ -p.pagesize.x, 0, 2 * p.pagesize.x, p.pagesize.y ]
+                    ([ viewLeft, 0, p.pagesize.x, p.pagesize.y ]
                         |> List.map ((*) 16)
                         |> List.map String.fromFloat
                         |> String.join " "
                     )
-                , width <| String.fromFloat <| 2 * 16 * p.pagesize.x
+                , width <| String.fromFloat <| 16 * p.pagesize.x
                 , height <| String.fromFloat <| 16 * p.pagesize.y
                 , style "border" "1px solid black"
                 ]
-                (List.map elemToSvg page)
+                (List.map elemToSvg page.elems)
 
         pages =
             layout p peeps
@@ -253,7 +268,7 @@ toJson p peeps =
 
         pageToJson page =
             Encode.object
-                [ ( "elems", Encode.list elemToJson page ) ]
+                [ ( "elems", Encode.list elemToJson page.elems ) ]
 
         pages =
             layout p peeps

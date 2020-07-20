@@ -25,11 +25,18 @@ listIdx i lst =
 
 cmp : Peep -> Peep -> Order
 cmp a b =
+    let
+        clean name =
+            name |> String.toUpper |> String.filter Char.isUpper
+
+        cmpName nameA nameB =
+            compare (clean nameA) (clean nameB)
+    in
     case compare a.grade b.grade of
         EQ ->
-            case compare a.lastname b.lastname of
+            case cmpName a.lastname b.lastname of
                 EQ ->
-                    compare a.firstname b.firstname
+                    cmpName a.firstname b.firstname
 
                 order ->
                     order
