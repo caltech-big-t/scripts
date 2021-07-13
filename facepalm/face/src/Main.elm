@@ -1,15 +1,18 @@
 module Main exposing (main)
 
 import Browser exposing (Document)
-import Element exposing (Element, height, px, text)
+import Components as Component exposing (TableFilter)
+import Debug exposing (log)
+import Dict exposing (Dict)
+import Element exposing (Element, centerX, fill, height, maximum, padding, px, scrollbarY, text, width)
+import Element.Font as Font
 import Element.Input as Input
 import File exposing (File)
 import File.Download as Download
 import File.Select as Select
 import Grid exposing (Params)
-import Html exposing (Html)
 import Peeps exposing (Peep)
-import Task
+import Task exposing (Task)
 
 
 main =
@@ -22,36 +25,42 @@ main =
 
 
 type alias Model =
-    { peeps : Maybe (Result (List Peeps.Error) (List Peep))
+    { photos : Dict String String
+    , peeps : Maybe (Result (List Peeps.Error) (List Peep))
+    , class : String
+    , filter : TableFilter
     , params : Grid.Params
-    , filter : String
+    }
+
+
+initModel =
+    { photos = Dict.empty
+    , peeps = Nothing
+    , params =
+        { pagesize = { x = 54, y = 72 }
+        , margins = { x = 4, y = 4 }
+        , elemsize = { x = 5, y = 7 }
+        , rows = 8
+        , cols = 6
+        , gutters = { x = 0.5, y = 1 }
+        }
+    , class = "Freshman"
+    , filter = Component.defaultFilter
     }
 
 
 type Msg
-    = Select
-    | Selected File
-    | Loaded String
+    = Dispatch (Cmd Msg)
     | Download String String String
-    | Filter String
+    | SelectedFiles File (List File)
+    | LoadedFiles (List FileResult)
+    | SetClass String
+    | SetFilter TableFilter
 
 
 init : () -> ( Model, Cmd Msg )
 init =
-    always
-        ( { peeps = Nothing
-          , params =
-                { pagesize = { x = 54, y = 72 }
-                , margins = { x = 4, y = 4 }
-                , elemsize = { x = 5, y = 7 }
-                , rows = 8
-                , cols = 6
-                , gutters = { x = 0.5, y = 1 }
-                }
-          , filter = "Freshman"
-          }
-        , Cmd.none
-        )
+    always ( initModel, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg
@@ -59,117 +68,113 @@ subscriptions =
     always Sub.none
 
 
+type FileResult
+    = PeepsList String
+    | Photo String String
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Select ->
-            ( model, Select.file [ "text/txt" ] Selected )
+        Dispatch cmd ->
+            ( model, cmd )
 
-        Selected file ->
-            ( model, Task.perform Loaded (File.toString file) )
+        SelectedFiles first files ->
+            let
+                loadFile : File -> Task x FileResult
+                loadFile =
+                    \file ->
+                        case File.mime file of
+                            "text/plain" ->
+                                Task.map PeepsList <| File.toString file
 
-        Loaded contents ->
-            ( { model | peeps = Just <| Peeps.fromBalfour contents }, Cmd.none )
+                            _ ->
+                                Task.map (\contents -> Photo (File.name file) contents) <| File.toUrl file
+            in
+            ( model, Task.perform LoadedFiles <| Task.sequence <| List.map loadFile (first :: files) )
+
+        LoadedFiles items ->
+            let
+                iterItems : FileResult -> ( Maybe String, List ( String, String ) ) -> ( Maybe String, List ( String, String ) )
+                iterItems =
+                    \item ( peeps, photos ) ->
+                        case ( item, peeps ) of
+                            ( PeepsList list, Nothing ) ->
+                                ( Just list, photos )
+
+                            ( Photo name contents, _ ) ->
+                                ( peeps, ( name, contents ) :: photos )
+
+                            _ ->
+                                ( peeps, photos )
+            in
+            case List.foldr iterItems ( Nothing, [] ) items of
+                ( Just peeps, photos ) ->
+                    ( { model
+                        | peeps = Just <| Peeps.fromBalfour peeps
+                        , photos = Dict.fromList photos
+                      }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
 
         Download name mime string ->
             ( model, Download.string name mime string )
 
-        Filter by ->
-            ( { model | filter = by }, Cmd.none )
+        SetClass by ->
+            ( { model | class = by }, Cmd.none )
+
+        SetFilter filter ->
+            ( { model | filter = filter }, Cmd.none )
 
 
 view : Model -> Document Msg
 view model =
     let
-        filterSelect =
-            Input.radio []
-                { onChange = Filter
-                , selected = Just model.filter
-                , label = Input.labelAbove [] (text "Filter")
-                , options =
-                    [ Input.option "Freshman" (text "Freshman")
-                    , Input.option "Sophomore" (text "Sophomore")
-                    , Input.option "Junior" (text "Junior")
-                    , Input.option "Senior" (text "Senior")
-                    ]
-                }
+        selection =
+            Component.selection
+                model.peeps
+                (Dispatch <| Select.files [ "image/png", "image/jpg", "text/plain" ] SelectedFiles)
+                model.class
+                SetClass
 
-        peepsView =
+        classPeeps =
             case model.peeps of
-                Nothing ->
-                    [ text "Import file to get started" ]
-
-                Just (Err errs) ->
-                    [ text "errors importing" ]
-
                 Just (Ok peeps) ->
-                    [ filterSelect
-                    , viewPeeps model.params <|
-                        List.sortWith Peeps.cmp <|
-                            List.filter (\peep -> peep.grade == model.filter) peeps
-                    ]
+                    Just <| List.sortWith Peeps.cmp <| List.filter (\peep -> peep.grade == model.class) peeps
 
-        body =
-            [ text "Facepalm"
-            , Input.button [] { onPress = Just Select, label = text "Import" }
-            ]
-                ++ peepsView
+                _ ->
+                    Nothing
+
+        ( table, layouts ) =
+            case classPeeps of
+                Nothing ->
+                    ( Element.none, Element.none )
+
+                Just peeps ->
+                    ( Component.table
+                        peeps
+                        model.photos
+                        model.filter
+                        SetFilter
+                    , Component.layouts
+                        peeps
+                        model.photos
+                        model.params
+                        (Download "layout.json" "text/json" <| Grid.toJson model.params peeps)
+                    )
     in
     { title = "FacePalm"
-    , body = [ Element.layout [] <| Element.column [] body ]
-    }
-
-
-viewPeeps : Params -> List Peep -> Element Msg
-viewPeeps params peeps =
-    let
-        pics =
-            { header = text "Pic"
-            , width = Element.shrink
-            , view =
-                \peep ->
-                    Element.image [ height <| px 64 ]
-                        { src = peep.pic, description = "" }
-            }
-
-        files =
-            { header = text "File"
-            , width = Element.fill
-            , view = \peep -> text peep.pic
-            }
-
-        lastnames =
-            { header = text "Last"
-            , width = Element.fill
-            , view = \peep -> text peep.lastname
-            }
-
-        firstnames =
-            { header = text "First"
-            , width = Element.fill
-            , view = \peep -> text peep.firstname
-            }
-
-        grades =
-            { header = text "Grade"
-            , width = Element.fill
-            , view = \peep -> text peep.grade
-            }
-    in
-    Element.column []
-        [ Element.table [] { data = peeps, columns = [ pics, lastnames, firstnames, grades ] }
-        , viewLayouts params peeps
-        , Input.button []
-            { onPress = Just <| Download "layout.json" "text/json" <| Grid.toJson params peeps
-            , label = text "Export"
-            }
+    , body =
+        [ Element.layout [] <|
+            Element.column
+                [ centerX, padding 8, width (fill |> maximum 1200) ]
+                [ Component.header
+                , selection
+                , table
+                , layouts
+                ]
         ]
-
-
-viewLayouts : Params -> List Peep -> Element Msg
-viewLayouts params peeps =
-    let
-        pages =
-            Grid.toSvg params peeps
-    in
-    Element.column [] (List.map Element.html pages)
+    }

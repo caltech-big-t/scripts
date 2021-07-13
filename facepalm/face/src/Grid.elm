@@ -1,6 +1,7 @@
 module Grid exposing (Params, toJson, toSvg)
 
 import Debug exposing (log)
+import Dict exposing (Dict)
 import Html exposing (Html)
 import Html.Attributes exposing (style)
 import Json.Encode as Encode
@@ -173,8 +174,8 @@ layout p peeps_ =
     iter Right peeps__ [ titlePage ]
 
 
-toSvg : Params -> List Peep -> List (Html msg)
-toSvg p peeps =
+toSvg : Params -> Dict String String -> List Peep -> List (Html msg)
+toSvg p photos peeps =
     let
         textProps box align =
             case align of
@@ -197,7 +198,7 @@ toSvg p peeps =
                         , y <| String.fromFloat <| 16 * box.position.y
                         , width <| String.fromFloat <| 16 * box.size.x
                         , height <| String.fromFloat <| 16 * box.size.y
-                        , xlinkHref pic
+                        , xlinkHref <| Maybe.withDefault "" <| Dict.get pic photos
                         , preserveAspectRatio "xMidYMid slice"
                         ]
                         []

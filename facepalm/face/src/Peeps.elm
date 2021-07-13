@@ -73,9 +73,7 @@ fromRecord record =
             listIdx 3 record
 
         pic =
-            Maybe.map2 (\dir file -> String.join "/" [ dir, file ])
-                (listIdx 1 record)
-                (listIdx 2 record)
+            listIdx 2 record
     in
     case Maybe.map4 Peep lastname firstname grade pic of
         Just peep ->
