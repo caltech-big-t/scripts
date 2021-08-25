@@ -1,11 +1,12 @@
 module Components exposing (TableFilter, defaultFilter, header, layouts, selection, table)
 
 import Dict exposing (Dict)
-import Element exposing (Element, centerX, fill, height, maximum, paddingXY, px, scrollbarY, text, width)
+import Element exposing (Element, centerX, fill, height, maximum, paddingXY, px, rgb, scrollbarY, spacing, text, width)
+import Element.Background as Background
 import Element.Font as Font
 import Element.Input as Input
 import Grid exposing (Params)
-import Peeps exposing (Peep)
+import Peeps exposing (Peep, Peeps)
 
 
 section : String -> List (Element msg) -> Element msg
@@ -14,15 +15,19 @@ section title elems =
         heading =
             Element.el [ Font.size 32 ] <| text title
     in
-    Element.column [ paddingXY 0 16 ] <| heading :: elems
+    Element.column [ paddingXY 0 16, spacing 8 ] <| heading :: elems
 
 
 header =
     Element.el [ paddingXY 0 16, Font.size 48, Font.light ] <| text "Facepalm"
 
 
-selection : Maybe (Result (List Peeps.Error) (List Peep)) -> msg -> String -> (String -> msg) -> Element msg
-selection selectedList selectList selectedClass selectClass =
+button attrs options =
+    Input.button ([ paddingXY 16 16, spacing 8, Background.color <| rgb 0.9 0.9 0.9 ] ++ attrs) options
+
+
+selection : Maybe Peeps -> msg -> msg -> String -> (String -> msg) -> Element msg
+selection selectedList selectList selectUpdates selectedClass selectClass =
     let
         filterSelect =
             Input.radio []
@@ -37,21 +42,25 @@ selection selectedList selectList selectedClass selectClass =
                     ]
                 }
 
+        inputs =
+            [ text "Select all files in the balfour folder"
+            , button [ Input.focusedOnLoad ]
+                { onPress = Just <| selectList
+                , label = text "Import Balfour"
+                }
+            , button []
+                { onPress = Just <| selectUpdates
+                , label = text "Import Updates"
+                }
+            ]
+
         elems =
             case selectedList of
                 Nothing ->
-                    [ text "Import file to get started"
-                    , Input.button [ Input.focusedOnLoad ]
-                        { onPress = Just <| selectList
-                        , label = text "Import Folder"
-                        }
-                    ]
+                    inputs
 
-                Just (Err errs) ->
-                    [ text "errors importing" ]
-
-                Just (Ok peeps) ->
-                    [ filterSelect ]
+                Just { ok, errors } ->
+                    inputs ++ [ filterSelect ]
     in
     section "Import" elems
 
@@ -124,9 +133,11 @@ layouts peeps photos params export =
                 |> List.map Element.html
 
         exportButton =
-            Input.button []
+            [ text "Save this file inside the balfour folder"
+            , button []
                 { onPress = Just <| export
                 , label = text "Export"
                 }
+            ]
     in
-    section "Preview" (pages ++ [ exportButton ])
+    section "Preview" (pages ++ exportButton)

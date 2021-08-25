@@ -1,6 +1,8 @@
-module Peeps exposing (Error, Peep, cmp, displayName, displayPic, fromBalfour)
+module Peeps exposing (Error, Peep, Peeps, cmp, displayName, filterGrade, fromBalfour, fromUpdates, merge, preferredPic)
 
-import Csv
+import Compare exposing (Comparator)
+import Csv.Decode as Decode exposing (Decoder, FieldNames(..), field, map2, pipeline, string, succeed)
+import Dict exposing (Dict)
 import Parser exposing (DeadEnd)
 import Result exposing (Result(..))
 
@@ -9,102 +11,187 @@ type alias Peep =
     { lastname : String
     , firstname : String
     , grade : String
+    , preferredname : Maybe String
     , pic : String
+    , preferredpic : Maybe String
+    }
+
+
+type alias PeepHash =
+    ( String, String, String )
+
+
+type alias Peeps =
+    { ok : List Peep
+    , errors : List Error
     }
 
 
 type Error
-    = BadParse Int
-    | Missing Int String
+    = Decode Decode.Error
+    | Duplicated Peep
+    | Missing Peep
 
 
-listIdx : Int -> List a -> Maybe a
-listIdx i lst =
-    List.head <| List.drop i lst
+preferredName peep =
+    Maybe.withDefault peep.firstname peep.preferredname
 
 
-cmp : Peep -> Peep -> Order
-cmp a b =
-    let
-        clean name =
-            name |> String.toUpper |> String.filter Char.isUpper
+preferredPic peep =
+    Maybe.withDefault peep.pic peep.preferredpic
 
-        cmpName nameA nameB =
-            compare (clean nameA) (clean nameB)
-    in
-    case compare a.grade b.grade of
-        EQ ->
-            case cmpName a.lastname b.lastname of
-                EQ ->
-                    cmpName a.firstname b.firstname
 
-                order ->
-                    order
+normalizeName =
+    -- normalizes for machine use/comparison.
+    -- case insensitive, ignore symbols (but allow alphanumeric and whitespace)
+    String.trim >> String.toUpper >> String.filter (\c -> Char.isUpper c || c == ' ')
 
-        order ->
-            order
+
+hash peep =
+    -- this is how we identify a person.
+    -- we expect names to be unique within each grade
+    ( peep.grade, normalizeName peep.lastname, normalizeName peep.firstname )
+
+
+cmp : Comparator Peep
+cmp =
+    -- normalize, then compare by last, then preferred first name
+    Compare.concat
+        [ Compare.compose .lastname <| Compare.by normalizeName
+        , Compare.compose preferredName <| Compare.by normalizeName
+        ]
 
 
 displayName : Peep -> String
 displayName peep =
-    String.join ", " [ peep.lastname, peep.firstname ]
+    String.join ", " <| List.map String.trim [ peep.lastname, preferredName peep ]
 
 
-displayPic : Peep -> String
-displayPic =
-    .pic
-
-
-fromRecord : List String -> Result String Peep
-fromRecord record =
+filterGrade : String -> Peeps -> Peeps
+filterGrade grade peeps =
     let
-        lastname =
-            listIdx 4 record
+        peepMatch =
+            .grade >> (==) grade
 
-        firstname =
-            case listIdx 6 record of
-                Just "" ->
-                    listIdx 5 record
+        errMatch err =
+            case err of
+                Duplicated peep ->
+                    peepMatch peep
 
-                name ->
-                    name
+                Missing peep ->
+                    peepMatch peep
 
-        grade =
-            listIdx 3 record
-
-        pic =
-            listIdx 2 record
+                _ ->
+                    True
     in
-    case Maybe.map4 Peep lastname firstname grade pic of
-        Just peep ->
-            Ok peep
-
-        Nothing ->
-            Err "TODO"
+    { ok = List.filter peepMatch peeps.ok, errors = List.filter errMatch peeps.errors }
 
 
-fromBalfour : String -> Result (List Error) (List Peep)
+
+{-
+   deduplicate : List Peep -> Peeps
+   deduplicate =
+       let
+           iter : Peep -> Peeps -> Peeps
+           iter peep deduped =
+               if Dict.member (hash peep) deduped.ok then
+                   { deduped | errors = Duplicated peep :: deduped.errors }
+
+               else
+                   { deduped | ok = Dict.insert (hash peep) peep deduped.ok }
+       in
+       List.foldl iter { ok = Dict.empty, errors = [] }
+
+-}
+
+
+merge : Peeps -> Peeps -> Peeps
+merge originals updates =
+    let
+        iter : Peep -> Peeps -> Peeps
+        iter update output =
+            case List.partition (\peep -> cmp peep update == EQ) output.ok of
+                ( [ match ], rest ) ->
+                    let
+                        merged =
+                            { match | preferredpic = Just update.pic }
+                    in
+                    { output | ok = merged :: rest }
+
+                _ ->
+                    { output | errors = Missing update :: output.errors }
+
+        mergedPeeps =
+            List.foldl iter originals updates.ok
+    in
+    { mergedPeeps | errors = mergedPeeps.errors ++ updates.errors }
+
+
+decodeNonEmpty : Decode.Decoder String -> Decode.Decoder (Maybe String)
+decodeNonEmpty decoder =
+    let
+        blankToNothing s =
+            case s of
+                "" ->
+                    Nothing
+
+                _ ->
+                    Just s
+    in
+    Decode.map blankToNothing decoder
+
+
+fromBalfour : String -> Peeps
 fromBalfour csv =
-    case Csv.parseWith '\t' csv of
-        Err deadends ->
-            Err <| List.map (\deadend -> BadParse deadend.row) deadends
+    let
+        decoder =
+            Decode.into Peep
+                |> pipeline (field "LastName" string)
+                |> pipeline (field "First_Name" string)
+                |> pipeline (field "Grade" string)
+                |> pipeline (decodeNonEmpty <| field "NICK_NAME" string)
+                |> pipeline (field "Image File Name" string)
+                |> pipeline (succeed Nothing)
 
-        Ok { headers, records } ->
-            let
-                partition : Result String Peep -> ( List Peep, List Error, Int ) -> ( List Peep, List Error, Int )
-                partition res ( succeeded_, failed_, i ) =
-                    case res of
-                        Ok peep ->
-                            ( peep :: succeeded_, failed_, i + 1 )
+        results =
+            Decode.decodeCustom
+                { fieldSeparator = '\t'
+                }
+                FieldNamesFromFirstRow
+                decoder
+                csv
+    in
+    case results of
+        Ok peeps ->
+            { ok = peeps, errors = [] }
 
-                        Err msg ->
-                            ( succeeded_, Missing i msg :: failed_, i + 1 )
+        Err err ->
+            { ok = [], errors = [ Decode err ] }
 
-                ( succeeded, failed, _ ) =
-                    List.foldl partition ( [], [], 0 ) (List.map fromRecord records)
-            in
-            if List.length failed == 0 then
-                Ok succeeded
 
-            else
-                Err failed
+fromUpdates : String -> Peeps
+fromUpdates csv =
+    let
+        decoder =
+            Decode.into Peep
+                |> pipeline (field "Last Name" string)
+                |> pipeline (field "First Name" string)
+                |> pipeline (field "Year" string)
+                |> pipeline (decodeNonEmpty <| field "Preferred Name" string)
+                |> pipeline (field "filename" string)
+                |> pipeline (succeed Nothing)
+
+        results =
+            Decode.decodeCustom
+                { fieldSeparator = ','
+                }
+                FieldNamesFromFirstRow
+                decoder
+                csv
+    in
+    case results of
+        Ok peeps ->
+            { ok = peeps, errors = [] }
+
+        Err err ->
+            { ok = [], errors = [ Decode err ] }

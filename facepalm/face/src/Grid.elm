@@ -5,7 +5,7 @@ import Dict exposing (Dict)
 import Html exposing (Html)
 import Html.Attributes exposing (style)
 import Json.Encode as Encode
-import Peeps exposing (Peep)
+import Peeps exposing (Peep, Peeps)
 import Svg exposing (Svg, image, text, text_)
 import Svg.Attributes exposing (dominantBaseline, fill, height, preserveAspectRatio, textAnchor, viewBox, width, x, xlinkHref, y)
 
@@ -129,7 +129,7 @@ layoutRow p side row peeps_ =
                 |> List.indexedMap
                     (\col peep ->
                         Pic (placePic p side row col)
-                            (Peeps.displayPic peep)
+                            (Peeps.preferredPic peep)
                     )
     in
     ( [ Text labelBox labelAlign labelText ] ++ pics

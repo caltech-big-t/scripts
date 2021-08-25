@@ -2,6 +2,7 @@ module Main exposing (main)
 
 import Browser exposing (Document)
 import Components as Component exposing (TableFilter)
+import Csv.Decode as Decode
 import Debug exposing (log)
 import Dict exposing (Dict)
 import Element exposing (Element, centerX, fill, height, maximum, padding, px, scrollbarY, text, width)
@@ -11,7 +12,7 @@ import File exposing (File)
 import File.Download as Download
 import File.Select as Select
 import Grid exposing (Params)
-import Peeps exposing (Peep)
+import Peeps exposing (Peep, Peeps)
 import Task exposing (Task)
 
 
@@ -26,7 +27,8 @@ main =
 
 type alias Model =
     { photos : Dict String String
-    , peeps : Maybe (Result (List Peeps.Error) (List Peep))
+    , peeps : Maybe Peeps
+    , updates : Maybe Peeps
     , class : String
     , filter : TableFilter
     , params : Grid.Params
@@ -36,6 +38,7 @@ type alias Model =
 initModel =
     { photos = Dict.empty
     , peeps = Nothing
+    , updates = Nothing
     , params =
         { pagesize = { x = 54, y = 72 }
         , margins = { x = 4, y = 4 }
@@ -52,8 +55,8 @@ initModel =
 type Msg
     = Dispatch (Cmd Msg)
     | Download String String String
-    | SelectedFiles File (List File)
-    | LoadedFiles (List FileResult)
+    | SelectedFiles FileSet File (List File)
+    | LoadedFiles FileSet (List FileResult)
     | SetClass String
     | SetFilter TableFilter
 
@@ -68,6 +71,11 @@ subscriptions =
     always Sub.none
 
 
+type FileSet
+    = Originals
+    | Updates
+
+
 type FileResult
     = PeepsList String
     | Photo String String
@@ -79,39 +87,45 @@ update msg model =
         Dispatch cmd ->
             ( model, cmd )
 
-        SelectedFiles first files ->
+        SelectedFiles which first files ->
             let
                 loadFile : File -> Task x FileResult
-                loadFile =
-                    \file ->
-                        case File.mime file of
-                            "text/plain" ->
-                                Task.map PeepsList <| File.toString file
+                loadFile file =
+                    case File.mime file of
+                        "text/plain" ->
+                            Task.map PeepsList <| File.toString file
 
-                            _ ->
-                                Task.map (\contents -> Photo (File.name file) contents) <| File.toUrl file
+                        _ ->
+                            Task.map (\contents -> Photo (File.name file) contents) <| File.toUrl file
             in
-            ( model, Task.perform LoadedFiles <| Task.sequence <| List.map loadFile (first :: files) )
+            ( model, Task.perform (LoadedFiles which) <| Task.sequence <| List.map loadFile (first :: files) )
 
-        LoadedFiles items ->
+        LoadedFiles which items ->
             let
                 iterItems : FileResult -> ( Maybe String, List ( String, String ) ) -> ( Maybe String, List ( String, String ) )
-                iterItems =
-                    \item ( peeps, photos ) ->
-                        case ( item, peeps ) of
-                            ( PeepsList list, Nothing ) ->
-                                ( Just list, photos )
+                iterItems item ( peeps, photos ) =
+                    case ( item, peeps ) of
+                        ( PeepsList list, Nothing ) ->
+                            ( Just list, photos )
 
-                            ( Photo name contents, _ ) ->
-                                ( peeps, ( name, contents ) :: photos )
+                        ( Photo name contents, _ ) ->
+                            ( peeps, ( name, contents ) :: photos )
 
-                            _ ->
-                                ( peeps, photos )
+                        _ ->
+                            ( peeps, photos )
             in
-            case List.foldr iterItems ( Nothing, [] ) items of
-                ( Just peeps, photos ) ->
+            case ( which, List.foldr iterItems ( Nothing, [] ) items ) of
+                ( Originals, ( Just peeps, photos ) ) ->
                     ( { model
-                        | peeps = Just <| Peeps.fromBalfour peeps
+                        | peeps = Just <| log "peeps" <| Peeps.fromBalfour peeps
+                        , photos = Dict.fromList photos
+                      }
+                    , Cmd.none
+                    )
+
+                ( Updates, ( Just peeps, photos ) ) ->
+                    ( { model
+                        | updates = Just <| log "updates" <| Peeps.fromUpdates peeps
                         , photos = Dict.fromList photos
                       }
                     , Cmd.none
@@ -136,34 +150,38 @@ view model =
         selection =
             Component.selection
                 model.peeps
-                (Dispatch <| Select.files [ "image/png", "image/jpg", "text/plain" ] SelectedFiles)
+                (Dispatch <| Select.files [ "image/png", "image/jpg", "text/plain" ] (SelectedFiles Originals))
+                (Dispatch <| Select.files [ "image/png", "image/jpg", "text/plain" ] (SelectedFiles Updates))
                 model.class
                 SetClass
 
         classPeeps =
-            case model.peeps of
-                Just (Ok peeps) ->
-                    Just <| List.sortWith Peeps.cmp <| List.filter (\peep -> peep.grade == model.class) peeps
+            case ( Maybe.map (Peeps.filterGrade model.class) model.peeps, Maybe.map (Peeps.filterGrade model.class) model.updates ) of
+                ( Just peeps, Just updates ) ->
+                    Just <| Peeps.merge peeps updates
+
+                ( Just peeps, Nothing ) ->
+                    Just peeps
 
                 _ ->
                     Nothing
 
         ( table, layouts ) =
-            case classPeeps of
+            case log "classpeeps" classPeeps of
                 Nothing ->
                     ( Element.none, Element.none )
 
                 Just peeps ->
                     ( Component.table
-                        peeps
+                        peeps.ok
                         model.photos
                         model.filter
                         SetFilter
                     , Component.layouts
-                        peeps
+                        peeps.ok
                         model.photos
                         model.params
-                        (Download "layout.json" "text/json" <| Grid.toJson model.params peeps)
+                        (Download "layout.json" "text/json" <| Grid.toJson model.params peeps.ok)
                     )
     in
     { title = "FacePalm"
