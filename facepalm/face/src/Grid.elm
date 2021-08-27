@@ -169,7 +169,7 @@ layout p peeps_ =
                 iter (flip side) remaining (pages ++ [ pageElems ])
 
         ( titlePage, peeps__ ) =
-            layoutPage p Left 2 peeps_
+            layoutPage p Left 2 (List.sortWith Peeps.cmp peeps_)
     in
     iter Right peeps__ [ titlePage ]
 

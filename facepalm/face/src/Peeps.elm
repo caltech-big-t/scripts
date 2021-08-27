@@ -1,4 +1,4 @@
-module Peeps exposing (Error, Peep, Peeps, cmp, displayName, filterGrade, fromBalfour, fromUpdates, merge, preferredPic)
+module Peeps exposing (Peep, Peeps, cmp, displayName, filterGrade, fromBalfour, fromUpdates, merge, preferredPic)
 
 import Compare exposing (Comparator)
 import Csv.Decode as Decode exposing (Decoder, FieldNames(..), field, map2, pipeline, string, succeed)
@@ -23,14 +23,8 @@ type alias PeepHash =
 
 type alias Peeps =
     { ok : List Peep
-    , errors : List Error
+    , errors : List Peep
     }
-
-
-type Error
-    = Decode Decode.Error
-    | Duplicated Peep
-    | Missing Peep
 
 
 preferredName peep =
@@ -57,7 +51,8 @@ cmp : Comparator Peep
 cmp =
     -- normalize, then compare by last, then preferred first name
     Compare.concat
-        [ Compare.compose .lastname <| Compare.by normalizeName
+        [ Compare.by .grade
+        , Compare.compose .lastname <| Compare.by normalizeName
         , Compare.compose preferredName <| Compare.by normalizeName
         ]
 
@@ -72,19 +67,8 @@ filterGrade grade peeps =
     let
         peepMatch =
             .grade >> (==) grade
-
-        errMatch err =
-            case err of
-                Duplicated peep ->
-                    peepMatch peep
-
-                Missing peep ->
-                    peepMatch peep
-
-                _ ->
-                    True
     in
-    { ok = List.filter peepMatch peeps.ok, errors = List.filter errMatch peeps.errors }
+    { ok = List.filter peepMatch peeps.ok, errors = List.filter peepMatch peeps.errors }
 
 
 
@@ -110,7 +94,7 @@ merge originals updates =
     let
         iter : Peep -> Peeps -> Peeps
         iter update output =
-            case List.partition (\peep -> cmp peep update == EQ) output.ok of
+            case List.partition (\peep -> hash peep == hash update) output.ok of
                 ( [ match ], rest ) ->
                     let
                         merged =
@@ -119,7 +103,7 @@ merge originals updates =
                     { output | ok = merged :: rest }
 
                 _ ->
-                    { output | errors = Missing update :: output.errors }
+                    { output | errors = update :: output.errors }
 
         mergedPeeps =
             List.foldl iter originals updates.ok
@@ -141,7 +125,7 @@ decodeNonEmpty decoder =
     Decode.map blankToNothing decoder
 
 
-fromBalfour : String -> Peeps
+fromBalfour : String -> Result Decode.Error Peeps
 fromBalfour csv =
     let
         decoder =
@@ -161,15 +145,10 @@ fromBalfour csv =
                 decoder
                 csv
     in
-    case results of
-        Ok peeps ->
-            { ok = peeps, errors = [] }
-
-        Err err ->
-            { ok = [], errors = [ Decode err ] }
+    Result.map (\ok -> { ok = ok, errors = [] }) results
 
 
-fromUpdates : String -> Peeps
+fromUpdates : String -> Result Decode.Error Peeps
 fromUpdates csv =
     let
         decoder =
@@ -181,6 +160,7 @@ fromUpdates csv =
                 |> pipeline (field "filename" string)
                 |> pipeline (succeed Nothing)
 
+        results : Result Decode.Error (List Peep)
         results =
             Decode.decodeCustom
                 { fieldSeparator = ','
@@ -189,9 +169,4 @@ fromUpdates csv =
                 decoder
                 csv
     in
-    case results of
-        Ok peeps ->
-            { ok = peeps, errors = [] }
-
-        Err err ->
-            { ok = [], errors = [ Decode err ] }
+    Result.map (\ok -> { ok = ok, errors = [] }) results

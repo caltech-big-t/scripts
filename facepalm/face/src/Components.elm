@@ -1,5 +1,7 @@
-module Components exposing (TableFilter, defaultFilter, header, layouts, selection, table)
+module Components exposing (TableFilter, defaultFilter, header, importPeeps, layouts, reviewTables)
 
+import Csv.Decode as Decode
+import Debug
 import Dict exposing (Dict)
 import Element exposing (Element, centerX, fill, height, maximum, paddingXY, px, rgb, scrollbarY, spacing, text, width)
 import Element.Background as Background
@@ -26,8 +28,8 @@ button attrs options =
     Input.button ([ paddingXY 16 16, spacing 8, Background.color <| rgb 0.9 0.9 0.9 ] ++ attrs) options
 
 
-selection : Maybe Peeps -> msg -> msg -> String -> (String -> msg) -> Element msg
-selection selectedList selectList selectUpdates selectedClass selectClass =
+importPeeps : Maybe (Result Decode.Error Peeps) -> Maybe (Result Decode.Error Peeps) -> msg -> msg -> String -> (String -> msg) -> Element msg
+importPeeps peeps updates selectList selectUpdates selectedClass selectClass =
     let
         filterSelect =
             Input.radio []
@@ -42,87 +44,129 @@ selection selectedList selectList selectUpdates selectedClass selectClass =
                     ]
                 }
 
+        selectionInfo selection =
+            case selection of
+                Nothing ->
+                    text "No selection"
+
+                Just (Err err) ->
+                    let
+                        _ =
+                            Debug.log "IMPORT ERROR" err
+                    in
+                    text <| "Error occurred while importing"
+
+                Just (Ok { ok }) ->
+                    text <| (String.fromInt <| List.length ok) ++ " selected"
+
         inputs =
             [ text "Select all files in the balfour folder"
             , button [ Input.focusedOnLoad ]
                 { onPress = Just <| selectList
                 , label = text "Import Balfour"
                 }
+            , selectionInfo peeps
             , button []
                 { onPress = Just <| selectUpdates
                 , label = text "Import Updates"
                 }
+            , selectionInfo updates
             ]
 
         elems =
-            case selectedList of
-                Nothing ->
-                    inputs
-
-                Just { ok, errors } ->
+            case peeps of
+                Just (Ok _) ->
                     inputs ++ [ filterSelect ]
+
+                _ ->
+                    inputs
     in
     section "Import" elems
 
 
 type alias TableFilter =
     { noPhoto : Bool
-    , modified : Bool
+    , updatedPhoto : Bool
+    , all : Bool
     }
 
 
 defaultFilter =
-    { noPhoto = True, modified = True }
+    { noPhoto = True, updatedPhoto = True, all = False }
 
 
-table : List Peep -> Dict String String -> TableFilter -> (TableFilter -> msg) -> Element msg
-table peeps photos filter setFilter =
+table : List Peep -> Dict String String -> Dict String String -> TableFilter -> (TableFilter -> msg) -> Element msg
+table peeps photos updatedPhotos filter setFilter =
     let
-        hasPhoto peep =
-            Dict.member peep.pic photos
+        columns =
+            [ { header = text "Pic"
+              , width = Element.shrink
+              , view =
+                    \peep ->
+                        Element.image [ height <| px 96 ]
+                            { src = Maybe.withDefault "coconut.png" <| Dict.get peep.pic photos, description = "" }
+              }
+            , { header = text "Updated Pic"
+              , width = Element.shrink
+              , view =
+                    \peep ->
+                        case peep.preferredpic of
+                            Nothing ->
+                                Element.none
 
-        pics =
-            { header = text "Pic"
-            , width = Element.shrink
-            , view =
-                \peep ->
-                    Element.image [ height <| px 64 ]
-                        { src = Maybe.withDefault "coconut.png" <| Dict.get peep.pic photos, description = "" }
-            }
-
-        files =
-            { header = text "File"
-            , width = Element.fill
-            , view = \peep -> text peep.pic
-            }
-
-        lastnames =
-            { header = text "Last"
-            , width = Element.fill
-            , view = \peep -> text peep.lastname
-            }
-
-        firstnames =
-            { header = text "First"
-            , width = Element.fill
-            , view = \peep -> text peep.firstname
-            }
-
-        grades =
-            { header = text "Grade"
-            , width = Element.fill
-            , view = \peep -> text peep.grade
-            }
-
-        filtered =
-            peeps
-                |> List.filter (\peep -> not filter.noPhoto && hasPhoto peep)
-
-        elems =
-            [ Element.table [] { data = filtered, columns = [ pics, lastnames, firstnames, grades ] }
+                            Just pic ->
+                                Element.image [ height <| px 96 ]
+                                    { src = Maybe.withDefault "coconut.png" <| Dict.get pic updatedPhotos, description = "" }
+              }
+            , { header = text "File", width = Element.fill, view = \peep -> text peep.pic }
+            , { header = text "Last", width = Element.fill, view = \peep -> text peep.lastname }
+            , { header = text "First", width = Element.fill, view = \peep -> text peep.firstname }
+            , { header = text "Preferred", width = Element.fill, view = \peep -> text <| Maybe.withDefault "" peep.preferredname }
+            , { header = text "Grade", width = Element.fill, view = \peep -> text peep.grade }
             ]
     in
-    section "Match photos" elems
+    Element.table [] { data = peeps, columns = columns }
+
+
+reviewTables : Peeps -> Dict String String -> Dict String String -> TableFilter -> (TableFilter -> msg) -> Element msg
+reviewTables peeps photos updatedPhotos filter setFilter =
+    let
+        findPhoto : Peep -> Maybe String
+        findPhoto peep =
+            case peep.preferredpic of
+                Just pic ->
+                    Dict.get pic updatedPhotos
+
+                Nothing ->
+                    Dict.get peep.pic photos
+
+        filterBoxes =
+            [ ( "Missing Photo", .noPhoto, \show -> { filter | noPhoto = show } )
+            , ( "Updated Photo", .updatedPhoto, \show -> { filter | updatedPhoto = show } )
+            , ( "All", .all, \show -> { filter | all = show } )
+            ]
+                |> List.map
+                    (\( label, getChecked, setChecked ) ->
+                        Input.checkbox []
+                            { onChange = setFilter << setChecked
+                            , icon = Input.defaultCheckbox
+                            , checked = getChecked filter
+                            , label = Input.labelRight [] <| text label
+                            }
+                    )
+
+        peepFilter peep =
+            filter.all
+                || (filter.noPhoto && findPhoto peep == Nothing)
+                || (filter.updatedPhoto && peep.preferredpic /= Nothing)
+
+        elems =
+            filterBoxes
+                ++ [ table (List.filter peepFilter peeps.ok) photos updatedPhotos filter setFilter
+                   , table peeps.errors updatedPhotos Dict.empty filter setFilter
+                   ]
+    in
+    section "Review Photos" elems
 
 
 layouts : List Peep -> Dict String String -> Params -> msg -> Element msg

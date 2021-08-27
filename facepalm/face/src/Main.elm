@@ -27,8 +27,9 @@ main =
 
 type alias Model =
     { photos : Dict String String
-    , peeps : Maybe Peeps
-    , updates : Maybe Peeps
+    , updatedPhotos : Dict String String
+    , peeps : Maybe (Result Decode.Error Peeps)
+    , updatedPeeps : Maybe (Result Decode.Error Peeps)
     , class : String
     , filter : TableFilter
     , params : Grid.Params
@@ -37,8 +38,9 @@ type alias Model =
 
 initModel =
     { photos = Dict.empty
+    , updatedPhotos = Dict.empty
     , peeps = Nothing
-    , updates = Nothing
+    , updatedPeeps = Nothing
     , params =
         { pagesize = { x = 54, y = 72 }
         , margins = { x = 4, y = 4 }
@@ -117,7 +119,7 @@ update msg model =
             case ( which, List.foldr iterItems ( Nothing, [] ) items ) of
                 ( Originals, ( Just peeps, photos ) ) ->
                     ( { model
-                        | peeps = Just <| log "peeps" <| Peeps.fromBalfour peeps
+                        | peeps = Just <| Peeps.fromBalfour peeps
                         , photos = Dict.fromList photos
                       }
                     , Cmd.none
@@ -125,8 +127,8 @@ update msg model =
 
                 ( Updates, ( Just peeps, photos ) ) ->
                     ( { model
-                        | updates = Just <| log "updates" <| Peeps.fromUpdates peeps
-                        , photos = Dict.fromList photos
+                        | updatedPeeps = Just <| Peeps.fromUpdates peeps
+                        , updatedPhotos = Dict.fromList photos
                       }
                     , Cmd.none
                     )
@@ -148,20 +150,21 @@ view : Model -> Document Msg
 view model =
     let
         selection =
-            Component.selection
+            Component.importPeeps
                 model.peeps
+                model.updatedPeeps
                 (Dispatch <| Select.files [ "image/png", "image/jpg", "text/plain" ] (SelectedFiles Originals))
                 (Dispatch <| Select.files [ "image/png", "image/jpg", "text/plain" ] (SelectedFiles Updates))
                 model.class
                 SetClass
 
         classPeeps =
-            case ( Maybe.map (Peeps.filterGrade model.class) model.peeps, Maybe.map (Peeps.filterGrade model.class) model.updates ) of
-                ( Just peeps, Just updates ) ->
-                    Just <| Peeps.merge peeps updates
+            case ( model.peeps, model.updatedPeeps ) of
+                ( Just (Ok peeps), Just (Ok updates) ) ->
+                    Just <| Peeps.merge (Peeps.filterGrade model.class peeps) (Peeps.filterGrade model.class updates)
 
-                ( Just peeps, Nothing ) ->
-                    Just peeps
+                ( Just (Ok peeps), Nothing ) ->
+                    Just <| Peeps.filterGrade model.class peeps
 
                 _ ->
                     Nothing
@@ -172,9 +175,10 @@ view model =
                     ( Element.none, Element.none )
 
                 Just peeps ->
-                    ( Component.table
-                        peeps.ok
+                    ( Component.reviewTables
+                        peeps
                         model.photos
+                        model.updatedPhotos
                         model.filter
                         SetFilter
                     , Component.layouts
