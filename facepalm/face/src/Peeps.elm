@@ -1,4 +1,4 @@
-module Peeps exposing (Peep, Peeps, cmp, displayName, filterGrade, fromBalfour, fromUpdates, merge, preferredPic)
+module Peeps exposing (FileSet(..), Peep, Peeps, cmp, displayName, filterGrade, fromBalfour, fromUpdates, merge, preferredPic)
 
 import Compare exposing (Comparator)
 import Csv.Decode as Decode exposing (Decoder, FieldNames(..), field, map2, pipeline, string, succeed)
@@ -27,12 +27,22 @@ type alias Peeps =
     }
 
 
+type FileSet
+    = Originals
+    | Updates
+
+
 preferredName peep =
     Maybe.withDefault peep.firstname peep.preferredname
 
 
 preferredPic peep =
-    Maybe.withDefault peep.pic peep.preferredpic
+    case peep.preferredpic of
+        Just pic ->
+            ( Updates, pic )
+
+        Nothing ->
+            ( Originals, peep.pic )
 
 
 normalizeName =

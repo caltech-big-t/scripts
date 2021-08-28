@@ -158,7 +158,7 @@ reviewTables peeps photos updatedPhotos filter setFilter =
         peepFilter peep =
             filter.all
                 || (filter.noPhoto && findPhoto peep == Nothing)
-                || (filter.updatedPhoto && peep.preferredpic /= Nothing)
+                || (filter.updatedPhoto && Dict.get (Maybe.withDefault "" peep.preferredpic) updatedPhotos /= Nothing)
 
         elems =
             filterBoxes
@@ -169,11 +169,11 @@ reviewTables peeps photos updatedPhotos filter setFilter =
     section "Review Photos" elems
 
 
-layouts : List Peep -> Dict String String -> Params -> msg -> Element msg
-layouts peeps photos params export =
+layouts : List Peep -> Dict String String -> Dict String String -> Params -> msg -> Element msg
+layouts peeps photos updatedPhotos params export =
     let
         pages =
-            Grid.toSvg params photos peeps
+            Grid.toSvg params photos updatedPhotos peeps
                 |> List.map Element.html
 
         exportButton =

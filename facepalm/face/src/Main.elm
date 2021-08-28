@@ -12,7 +12,7 @@ import File exposing (File)
 import File.Download as Download
 import File.Select as Select
 import Grid exposing (Params)
-import Peeps exposing (Peep, Peeps)
+import Peeps exposing (FileSet(..), Peep, Peeps)
 import Task exposing (Task)
 
 
@@ -73,14 +73,10 @@ subscriptions =
     always Sub.none
 
 
-type FileSet
-    = Originals
-    | Updates
-
-
 type FileResult
     = PeepsList String
     | Photo String String
+    | Invalid
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -93,12 +89,15 @@ update msg model =
             let
                 loadFile : File -> Task x FileResult
                 loadFile file =
-                    case File.mime file of
-                        "text/plain" ->
+                    case ( File.mime file, String.startsWith "image" <| File.mime file ) of
+                        ( "text/plain", _ ) ->
                             Task.map PeepsList <| File.toString file
 
-                        _ ->
+                        ( _, True ) ->
                             Task.map (\contents -> Photo (File.name file) contents) <| File.toUrl file
+
+                        ( _, _ ) ->
+                            Task.succeed Invalid
             in
             ( model, Task.perform (LoadedFiles which) <| Task.sequence <| List.map loadFile (first :: files) )
 
@@ -163,7 +162,7 @@ view model =
                 ( Just (Ok peeps), Just (Ok updates) ) ->
                     Just <| Peeps.merge (Peeps.filterGrade model.class peeps) (Peeps.filterGrade model.class updates)
 
-                ( Just (Ok peeps), Nothing ) ->
+                ( Just (Ok peeps), _ ) ->
                     Just <| Peeps.filterGrade model.class peeps
 
                 _ ->
@@ -184,6 +183,7 @@ view model =
                     , Component.layouts
                         peeps.ok
                         model.photos
+                        model.updatedPhotos
                         model.params
                         (Download "layout.json" "text/json" <| Grid.toJson model.params peeps.ok)
                     )

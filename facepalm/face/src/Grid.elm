@@ -5,7 +5,7 @@ import Dict exposing (Dict)
 import Html exposing (Html)
 import Html.Attributes exposing (style)
 import Json.Encode as Encode
-import Peeps exposing (Peep, Peeps)
+import Peeps exposing (FileSet(..), Peep, Peeps)
 import Svg exposing (Svg, image, text, text_)
 import Svg.Attributes exposing (dominantBaseline, fill, height, preserveAspectRatio, textAnchor, viewBox, width, x, xlinkHref, y)
 
@@ -27,7 +27,7 @@ type alias Page =
 
 
 type Elem
-    = Pic Box String
+    = Pic Box FileSet String
     | Text Box Side String
 
 
@@ -124,15 +124,16 @@ layoutRow p side row peeps_ =
         labelAlign =
             flip side
 
-        pics =
-            peeps
-                |> List.indexedMap
-                    (\col peep ->
-                        Pic (placePic p side row col)
-                            (Peeps.preferredPic peep)
-                    )
+        generatePic col peep =
+            let
+                ( fileset, pic ) =
+                    Peeps.preferredPic peep
+            in
+            Pic (placePic p side row col)
+                fileset
+                pic
     in
-    ( [ Text labelBox labelAlign labelText ] ++ pics
+    ( [ Text labelBox labelAlign labelText ] ++ List.indexedMap generatePic peeps
     , List.drop p.cols peeps_
     )
 
@@ -174,8 +175,18 @@ layout p peeps_ =
     iter Right peeps__ [ titlePage ]
 
 
-toSvg : Params -> Dict String String -> List Peep -> List (Html msg)
-toSvg p photos peeps =
+picSrc : Dict String String -> Dict String String -> FileSet -> String -> Maybe String
+picSrc photos updatedPhotos set pic =
+    case set of
+        Originals ->
+            Dict.get pic photos
+
+        Updates ->
+            Dict.get pic updatedPhotos
+
+
+toSvg : Params -> Dict String String -> Dict String String -> List Peep -> List (Html msg)
+toSvg p photos updatedPhotos peeps =
     let
         textProps box align =
             case align of
@@ -192,13 +203,15 @@ toSvg p photos peeps =
 
         elemToSvg elem =
             case elem of
-                Pic box pic ->
+                Pic box set pic ->
                     Svg.image
                         [ x <| String.fromFloat <| 16 * box.position.x
                         , y <| String.fromFloat <| 16 * box.position.y
                         , width <| String.fromFloat <| 16 * box.size.x
                         , height <| String.fromFloat <| 16 * box.size.y
-                        , xlinkHref <| Maybe.withDefault "" <| Dict.get pic photos
+                        , xlinkHref <|
+                            Maybe.withDefault "coconut.png" <|
+                                picSrc photos updatedPhotos set pic
                         , preserveAspectRatio "xMidYMid slice"
                         ]
                         []
@@ -250,9 +263,19 @@ toJson p peeps =
 
         elemToJson elem =
             case elem of
-                Pic box pic ->
+                Pic box set pic ->
+                    let
+                        fileset =
+                            case set of
+                                Originals ->
+                                    "Originals"
+
+                                Updates ->
+                                    "updates"
+                    in
                     Encode.object
                         ([ ( "type", Encode.string "pic" )
+                         , ( "fileset", Encode.string fileset )
                          , ( "pic", Encode.string pic )
                          ]
                             ++ boxProps box
