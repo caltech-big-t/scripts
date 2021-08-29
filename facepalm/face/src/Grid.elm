@@ -268,7 +268,7 @@ toJson p peeps =
                         fileset =
                             case set of
                                 Originals ->
-                                    "Originals"
+                                    "originals"
 
                                 Updates ->
                                     "updates"

@@ -1,4 +1,7 @@
-﻿function JSONparse(str) {
+﻿#targetengine "session"
+
+
+function JSONparse(str) {
     return Function('"use strict";return ('+str+')')();
 }
 
@@ -14,11 +17,11 @@ function boundsOf(elem) {
 }
 
 function createPic(page, elem, params) {
-    var src;
-    if ("picsDir" in params) {
-        src = [params.picsDir, elem.pic].join("/");
-    } else {
-        src = elem.pic;
+    var src = elem.pic;
+    if (elem.fileset === "originals") {
+        src = [params.pics, src].join("/");
+    } else if (elem.fileset === "updates") {
+        src = [params.updatedPics, src].join("/");
     }
     var pic = page.rectangles.add(
         params["layer"],
@@ -74,13 +77,95 @@ function createLayout(doc, layout, params) {
     }
 }
 
-function main() {
-    var layoutFile = File.openDialog("Select layout file");
-    layoutFile.open("r");
-    var layoutParams = JSONparse(layoutFile.read());
-    layoutFile.close();
-    var doc = app.documents[0];
-    createLayout(doc, layoutParams, {"picsDir": layoutFile.path});
+function createFileSelect(root, props) {
+    var selectButton = root.add("button", undefined, props.prompt);
+    var selectedLabel = root.add("statictext", undefined, "No file selected");
+    selectButton.onClick = function() {
+        var selected = null;
+        if (props.selectFolder) {
+            if (props.defaultFolder) {
+                selected = props.defaultFolder.selectDlg(props.prompt);
+            } else {
+                selected = Folder.selectDialog(props.prompt);
+            }
+        } else {
+            selected = File.openDialog(props.prompt, props.filter, props.multiSelect);
+        }
+        if (selected === null) {
+            return;
+        }
+        selectedLabel.text = selected.displayName;
+        props.onSelect(selected);
+    };
+    return { 
+        selectButton: selectButton,
+        selectedLabel: selectedLabel,
+        setDefaultFolder: function(folder) { props.defaultFolder = folder; }
+    };
 }
 
-main();
+
+function createUI(props) {
+    var dialog = new Window("window", "FacePalm");
+    var panel = dialog.add("panel", undefined, "Select input files");
+    var layoutSelect = createFileSelect(
+        panel, { prompt: "Select layout", onSelect: props.onSelectedLayout }
+    );
+    var picsSelect = createFileSelect(
+        panel, { prompt: "Select original photos", selectFolder: true, onSelect: props.onSelectedPics }
+    );
+    var updatedPicsSelect = createFileSelect(
+        panel, { prompt: "Select updated photos", selectFolder: true, onSelect: props.onSelectedUpdatedPics }
+    );
+    var doLayoutButton = panel.add("button", undefined, "Do Layout");
+    doLayoutButton.onClick = props.onDoLayout;
+    var errorText = panel.add("statictext", undefined, "No errors");
+
+    return {
+        dialog: dialog,
+        setErrorText: function(text) { errorText.text = text; },
+        setDefaultFolder: function(folder) {
+            picsSelect.setDefaultFolder(folder);
+            updatedPicsSelect.setDefaultFolder(folder);
+        }
+    };
+}
+
+function doLayout(settings) {
+    try{
+        createLayout(app.documents[0], settings.layout, settings);
+    } catch (err) {
+        alert("Error while creating layout:\n" + err.toString());
+    }
+}
+
+function main() {
+    var settings = {
+        layout: null,
+        pics: null,
+        updatedPics: null
+    };
+    var ui = createUI({
+        onSelectedLayout: function(layoutFile) {
+            try {
+                layoutFile.open("r");
+                var layoutParams = JSONparse(layoutFile.read());
+                layoutFile.close();
+                settings.layout = layoutParams;
+                ui.setDefaultFolder(layoutFile.parent);
+            } catch (err) {
+                ui.setErrorText("Could not open layout file:\n" + err.toString());
+            }
+        },
+        onSelectedPics: function (picsFolder) { settings.pics = picsFolder; },
+        onSelectedUpdatedPics: function (updatedPicsFolder) { settings.updatedPics = updatedPicsFolder; },
+        onDoLayout: function() { doLayout(settings); }
+    });
+    ui.dialog.show();
+}
+
+try {
+    main();
+} catch (err) {
+    alert("Unknown error:\n", err);
+}

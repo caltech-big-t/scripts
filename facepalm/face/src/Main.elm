@@ -3,7 +3,6 @@ module Main exposing (main)
 import Browser exposing (Document)
 import Components as Component exposing (TableFilter)
 import Csv.Decode as Decode
-import Debug exposing (log)
 import Dict exposing (Dict)
 import Element exposing (Element, centerX, fill, height, maximum, padding, px, scrollbarY, text, width)
 import Element.Font as Font
@@ -89,8 +88,12 @@ update msg model =
             let
                 loadFile : File -> Task x FileResult
                 loadFile file =
-                    case ( File.mime file, String.startsWith "image" <| File.mime file ) of
-                        ( "text/plain", _ ) ->
+                    let
+                        typeIs mime =
+                            String.startsWith mime <| File.mime file
+                    in
+                    case ( typeIs "text", typeIs "image" ) of
+                        ( True, _ ) ->
                             Task.map PeepsList <| File.toString file
 
                         ( _, True ) ->
@@ -169,7 +172,7 @@ view model =
                     Nothing
 
         ( table, layouts ) =
-            case log "classpeeps" classPeeps of
+            case classPeeps of
                 Nothing ->
                     ( Element.none, Element.none )
 
