@@ -1,5 +1,6 @@
 #!/usr/bin/osascript
 display notification "Build started."
+# TODO: Change this path to location on disk of the Box folder
 set root to "macOS Root:Users:kisaayano:Library:CloudStorage:Box-Box:Big T Yearbook:2021-2022:spreads:"
 use scripting additions
 use framework "Foundation"
@@ -33,14 +34,18 @@ repeat with fil in listOfPaths
 		with timeout of 3600 seconds
 			tell application "Adobe InDesign 2022"
 				set user interaction level of script preferences to never interact
+                # If you need to debug errors, change this line to:
+                # set buildDoc to open fil
+                # This will show all dialog windows
 				set buildDoc to open fil without showing window
-				# set buildDoc to open fil
+                # TODO: Change this to the export destination
 				set saveDir to "macOS Root:Users:kisaayano:Documents:builds:" & fDir & ":"
 				set saveLoc to saveDir & fName & ".pdf"
 				set makeDir to POSIX path of saveDir
 				do shell script "mkdir -p " & quoted form of makeDir
 				
 				tell buildDoc
+                    # TODO: Change 'BalfourExport' to the name of the PDF export profile being used
 					export format PDF type to saveLoc using "BalfourExport"
 				end tell
 				close buildDoc saving no
